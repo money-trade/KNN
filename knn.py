@@ -25,19 +25,29 @@ dataset = [
     ('5', np.array([4.0, 3.0]), 'Green')
 ]
 
+def weighted_vote(k_nearest):
+    """โหวตแบบถ่วงน้ำหนักด้วยระยะ: น้ำหนัก = 1 / ระยะห่าง (ยิ่งใกล้ยิ่งมีเสียงมาก)"""
+    scores = {}
+    for dist, name, label in k_nearest:
+        scores[label] = scores.get(label, 0.0) + 1.0 / max(dist, 1e-9)
+    return scores
+
+
 def knn_predict(target, data, k):
+    """ทำนายคลาสของ target ด้วย KNN แล้วคืนชื่อคลาส (ถ้าเสมอ ตัดสินด้วย weighted vote)"""
     print(f"\n{'='*40}")
     print(f"จำลองการทำงาน KNN ด้วย NumPy เมื่อ k = {k}")
     print(f"{'='*40}")
     
-    # 1. คำนวณระยะห่าง (Euclidean Distance) ด้วย np.linalg.norm
-    distances = []
-    for name, coords, label in data:
-        dist = np.linalg.norm(coords - target)
-        distances.append((dist, name, label))
+    # 1. คำนวณระยะห่าง (Euclidean Distance) ของทุกจุดพร้อมกันด้วย np.linalg.norm
+    coords = np.array([c for _, c, _ in data])
+    dists = np.linalg.norm(coords - target, axis=1)
+    distances = [(float(d), name, label) for d, (name, _, label) in zip(dists, data)]
     
     # 2. เรียงลำดับข้อมูลจากระยะ "ใกล้" ไป "ไกล" ที่สุด
     distances.sort(key=lambda x: x[0])
+    if k > len(distances):
+        raise ValueError(f"k = {k} มากกว่าจำนวนข้อมูล ({len(distances)} จุด)")
     
     # 3. เลือกเพื่อนบ้านที่ใกล้ที่สุดจำนวน K ตัว
     k_nearest = distances[:k]
@@ -57,13 +67,21 @@ def knn_predict(target, data, k):
     winners = [label for label, count in vote_counts.items() if count == max_votes]
     
     if len(winners) > 1:
-        print(f"*** สรุป: X belongs to class เสมอ (Tie) ระหว่าง {', '.join(winners)} ***")
-        print("    -> ไม่สามารถฟันธงได้ด้วยวิธีนับเสียงส่วนมากปกติ (ต้องใช้วิธีลดค่า k หรือ Weight by distance)")
+        print(f"*** นับเสียงส่วนมาก: เสมอ (Tie) ระหว่าง {', '.join(winners)} ***")
+        # 6. ตัดสินด้วย Weight by distance: เพื่อนบ้านที่ใกล้กว่ามีน้ำหนักมากกว่า
+        scores = weighted_vote(k_nearest)
+        print("    -> ตัดสินด้วย Weight by distance (น้ำหนัก = 1 / ระยะห่าง):")
+        for label in sorted(scores, key=scores.get, reverse=True):
+            print(f"       {label}: {scores[label]:.3f}")
+        result = max(winners, key=scores.get)
+        print(f"*** สรุป: X belongs to class {result} (ตัดสินด้วยน้ำหนักระยะ) ***")
     else:
-        print(f"*** สรุป: X belongs to class {winners[0]} ***")
+        result = winners[0]
+        print(f"*** สรุป: X belongs to class {result} ***")
+    return result
 
 # รันโปรแกรมหลัก
 if __name__ == "__main__":
-    knn_predict(X_target, dataset, k=1)
-    knn_predict(X_target, dataset, k=3)
-    knn_predict(X_target, dataset, k=6)
+    results = {k: knn_predict(X_target, dataset, k=k) for k in (1, 3, 6)}
+    print(f"\n{'='*40}")
+    print("สรุปทุกค่า k: " + ", ".join(f"k={k} -> {c}" for k, c in results.items()))
